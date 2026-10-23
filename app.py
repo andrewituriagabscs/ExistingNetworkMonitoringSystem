@@ -1,0 +1,492 @@
+import csv
+import io
+import json
+
+import ipaddress
+
+from flask import Flask, jsonify, make_response, render_template, request
+from dashboard import get_dashboard_data
+from ml_models import (
+    CONDITION_LABELS,
+    get_ml_insights,
+    get_training_logs,
+    get_training_readiness,
+    is_valid_ping_sample,
+    train_models,
+    train_single_model,
+)
+from monitoring import (
+    add_monitored_device,
+    auto_apply_rule_labels,
+    discover_hosts,
+    get_available_databases,
+    get_building_name,
+    get_local_network,
+    get_ml_labeling_samples,
+    get_ml_training_data,
+    get_monitoring_data,
+    get_network_reference_samples,
+    get_network_reference_status,
+    get_recommendation_feedback,
+    initialize_database,
+    poll_network_references,
+    poll_once,
+    reclassify_monitored_devices,
+    remove_monitored_device,
+    save_building_name,
+    save_condition_label,
+    save_external_reference_target,
+    save_recommendation_outcome,
+    save_recommendation_selection,
+    start_monitoring,
+    stop_monitoring,
+    switch_to_database,
+    update_monitored_device,
+)
+
+app = Flask(__name__, static_folder="static", template_folder="templates")
+start_monitoring()
+
+
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=lambda: "")
+
+
+@app.route("/")
+@app.route("/dashboard")
+@app.route("/Dashboard")
+@app.route("/monitor")
+@app.route("/Monitor")
+@app.route("/alerts")
+@app.route("/Alerts")
+@app.route("/reports")
+@app.route("/Reports")
+@app.route("/ping-records")
+@app.route("/Ping-Records")
+@app.route("/ml-insights")
+@app.route("/ML-Insights")
+@app.route("/settings")
+@app.route("/Settings")
+@app.route("/about")
+@app.route("/About")
+def index():
+    data = get_dashboard_data()
+    data["building_name"] = get_building_name()
+    return render_template("dashboard.html", **data)
+
+
+@app.post("/api/monitor-now")
+def monitor_now():
+    return jsonify({"samples": poll_once()})
+
+
+@app.get("/api/status")
+def status():
+    return jsonify(get_monitoring_data())
+
+
+@app.get("/api/ml/status")
+def ml_status():
+    samples, labels = get_ml_training_data()
+    return jsonify(get_training_readiness(samples, labels))
+
+
+@app.get("/api/network-references")
+def network_references():
+    return jsonify(get_network_reference_status())
+
+
+@app.post("/api/network-references/poll")
+def poll_network_reference_targets():
+    poll_network_references()
+    return jsonify(get_network_reference_status())
+
+
+@app.get("/api/network-references.csv")
+def network_reference_csv():
+    rows = get_network_reference_samples()
+    output = io.StringIO()
+    fields = (
+        "id", "recorded_at", "reference_kind", "reference_name", "target", "online",
+        "latency_ms", "latency_min_ms", "latency_median_ms", "latency_max_ms",
+        "packet_loss", "ping_sent", "ping_received", "latency_readings",
+    )
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    if rows:
+        writer.writerows(rows)
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = "attachment; filename=network_reference_ping_data.csv"
+    return response
+
+
+@app.patch("/api/settings/external-reference")
+def update_external_reference():
+    payload = request.get_json(silent=True) or {}
+    try:
+        target = save_external_reference_target(payload.get("target"))
+    except (AttributeError, TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify({"ok": True, "target": target})
+
+
+@app.get("/api/settings/building-name")
+def get_settings_building_name():
+    return jsonify({"building_name": get_building_name()})
+
+
+@app.patch("/api/settings/building-name")
+def update_building_name():
+    payload = request.get_json(silent=True) or {}
+    try:
+        building_name = save_building_name(payload.get("building_name", ""))
+        initialize_database()
+    except (AttributeError, TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify({"ok": True, "building_name": building_name})
+
+
+@app.get("/api/settings/databases")
+def list_databases():
+    current_building = get_building_name()
+    databases = get_available_databases()
+    return jsonify({"databases": databases, "current_building": current_building})
+
+
+@app.post("/api/settings/databases/select")
+def select_database():
+    payload = request.get_json(silent=True) or {}
+    building_name = payload.get("building_name", "")
+    if not building_name:
+        return jsonify({"error": "Building name is required"}), 400
+    try:
+        saved_name = switch_to_database(building_name)
+    except (AttributeError, TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify({"ok": True, "building_name": saved_name, "message": f"Switched to {saved_name} database"})
+
+
+@app.post("/api/control/restart-monitoring")
+def restart_monitoring():
+    try:
+        stop_monitoring()
+        start_monitoring()
+        return jsonify({"ok": True, "message": "Monitoring service restarted successfully!"})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.get("/api/ml/insights")
+def ml_insights():
+    samples, _ = get_ml_training_data()
+    local_samples = [s for s in samples if s.get("protocol") == "icmp"]
+    return jsonify({"devices": get_ml_insights(local_samples)})
+
+
+@app.get("/api/ml/labels")
+def ml_labels():
+    return jsonify({"labels": list(CONDITION_LABELS), "samples": get_ml_labeling_samples()})
+
+
+@app.put("/api/ml/labels/<int:telemetry_id>")
+def ml_label(telemetry_id: int):
+    payload = request.get_json(silent=True) or {}
+    label = payload.get("label")
+    if label not in CONDITION_LABELS:
+        return jsonify({"error": "Choose Normal, High Latency, Packet Loss, or Unreachable"}), 400
+    if not save_condition_label(telemetry_id, label):
+        return jsonify({"error": "Valid ICMP sample not found"}), 404
+    return jsonify({"ok": True, "telemetry_id": telemetry_id, "label": label})
+
+
+@app.post("/api/ml/auto-label")
+def ml_auto_label():
+    payload = request.get_json(silent=True) or {}
+    overwrite = bool(payload.get("overwrite", True))
+    summary = auto_apply_rule_labels(overwrite=overwrite)
+    samples, labels = get_ml_training_data()
+    return jsonify(
+        {
+            "ok": True,
+            "updated": summary.get("updated", 0),
+            "summary": summary,
+            "readiness": get_training_readiness(samples, labels),
+        }
+    )
+
+
+@app.post("/api/ml/train")
+def train_ml_models():
+    auto_apply_rule_labels(overwrite=False)
+    samples, labels = get_ml_training_data()
+    results = train_models(samples, labels, building_name=get_building_name())
+    return jsonify({"models": results, "readiness": get_training_readiness(samples, labels)})
+
+
+@app.post("/api/ml/train/<string:model_name>")
+def train_single_ml_model(model_name: str):
+    if model_name not in ("isolation_forest", "gru", "xgboost"):
+        return jsonify({"error": "Choose isolation_forest, gru, or xgboost"}), 400
+    auto_apply_rule_labels(overwrite=False)
+    samples, labels = get_ml_training_data()
+    results = train_single_model(model_name, samples, labels, building_name=get_building_name())
+    return jsonify(
+        {
+            "trained_model": model_name,
+            "result": results.get(model_name, {}),
+            "models": results,
+            "readiness": get_training_readiness(samples, labels),
+        }
+    )
+
+
+@app.get("/api/ml/training-logs")
+def ml_training_logs():
+    return jsonify({"logs": get_training_logs(limit=50)})
+
+
+@app.get("/api/ml/training-logs.csv")
+def ml_training_logs_csv():
+    logs = get_training_logs(limit=200)
+    output = io.StringIO()
+    fields = (
+        "trained_at",
+        "building_name",
+        "trigger",
+        "telemetry_samples",
+        "labeled_samples",
+        "label_counts",
+        "if_state",
+        "if_precision",
+        "if_recall",
+        "if_f1_score",
+        "if_fpr",
+        "gru_state",
+        "gru_latency_mae_ms",
+        "gru_latency_rmse_ms",
+        "gru_loss_mae_percent",
+        "gru_loss_rmse_percent",
+        "gru_reachability_accuracy",
+        "xgb_state",
+        "xgb_macro_f1",
+        "xgb_balanced_accuracy",
+    )
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for entry in logs:
+        models = entry.get("models") or {}
+        if_m = models.get("isolation_forest") or {}
+        gru_m = models.get("gru") or {}
+        xgb_m = models.get("xgboost") or {}
+        writer.writerow(
+            {
+                "trained_at": entry.get("trained_at"),
+                "building_name": entry.get("building_name"),
+                "trigger": entry.get("trigger"),
+                "telemetry_samples": entry.get("telemetry_samples"),
+                "labeled_samples": entry.get("labeled_samples"),
+                "label_counts": json.dumps(entry.get("label_counts") or {}),
+                "if_state": if_m.get("state"),
+                "if_precision": if_m.get("precision"),
+                "if_recall": if_m.get("recall"),
+                "if_f1_score": if_m.get("f1_score"),
+                "if_fpr": if_m.get("false_positive_rate"),
+                "gru_state": gru_m.get("state"),
+                "gru_latency_mae_ms": gru_m.get("latency_mae_ms"),
+                "gru_latency_rmse_ms": gru_m.get("latency_rmse_ms"),
+                "gru_loss_mae_percent": gru_m.get("packet_loss_mae_percent"),
+                "gru_loss_rmse_percent": gru_m.get("packet_loss_rmse_percent"),
+                "gru_reachability_accuracy": gru_m.get("reachability_accuracy"),
+                "xgb_state": xgb_m.get("state"),
+                "xgb_macro_f1": xgb_m.get("temporal_test_macro_f1"),
+                "xgb_balanced_accuracy": xgb_m.get("balanced_accuracy"),
+            }
+        )
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = "attachment; filename=ml_training_logs.csv"
+    return response
+
+
+@app.get("/api/ml/recommendation-feedback")
+def ml_recommendation_feedback():
+    return jsonify({"feedback": get_recommendation_feedback()})
+
+
+@app.post("/api/ml/recommendation-feedback/<int:telemetry_id>")
+def select_ml_recommendation(telemetry_id: int):
+    payload = request.get_json(silent=True) or {}
+    suggestion_id = payload.get("suggestion_id")
+    samples, _ = get_ml_training_data()
+    insight = next(
+        (item for item in get_ml_insights(samples) if item["telemetry_id"] == telemetry_id),
+        None,
+    )
+    if not insight:
+        return jsonify({"error": "Current valid ICMP sample not found"}), 404
+    suggestion = next(
+        (item for item in insight["suggestions"] if item["id"] == suggestion_id),
+        None,
+    )
+    if not suggestion:
+        return jsonify({"error": "That suggestion is not available for this sample"}), 400
+    feedback_id = save_recommendation_selection(
+        telemetry_id, insight["target"], suggestion
+    )
+    if feedback_id is None:
+        return jsonify({"error": "ICMP sample is no longer available"}), 404
+    return jsonify({"ok": True, "feedback_id": feedback_id, "outcome": "pending"}), 201
+
+
+@app.patch("/api/ml/recommendation-feedback/<int:feedback_id>")
+def update_ml_recommendation_feedback(feedback_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        updated = save_recommendation_outcome(
+            feedback_id,
+            payload.get("outcome", ""),
+            payload.get("verified_finding", ""),
+            payload.get("notes", ""),
+        )
+    except (AttributeError, TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+    if not updated:
+        return jsonify({"error": "Selected recommendation not found"}), 404
+    return jsonify({"ok": True, "feedback_id": feedback_id})
+
+
+@app.get("/api/ml/recommendation-feedback.csv")
+def ml_recommendation_feedback_csv():
+    rows = get_recommendation_feedback()
+    output = io.StringIO()
+    fields = (
+        "id", "telemetry_id", "recorded_at", "selected_at", "outcome_at",
+        "device_name", "target", "model_sources", "evidence", "suggestion_id",
+        "suggested_action", "outcome", "verified_finding", "notes",
+    )
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({
+            **row,
+            "model_sources": json.dumps(row["model_sources"]),
+            "evidence": json.dumps(row["evidence"]),
+        })
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = "attachment; filename=recommendation_feedback.csv"
+    return response
+
+
+@app.get("/api/devices")
+def devices():
+    return jsonify({"devices": get_monitoring_data()["devices"], "local_network": get_local_network()})
+
+
+@app.post("/api/discover")
+def discover():
+    payload = request.get_json(silent=True) or {}
+    try:
+        subnet = payload.get("subnet") or get_local_network()["subnet"]
+        limit = payload.get("limit", 0)
+        return jsonify({"hosts": discover_hosts(subnet, limit)})
+    except (ValueError, ipaddress.AddressValueError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/devices")
+def add_devices():
+    payload = request.get_json(silent=True) or {}
+    selected = payload.get("devices", [])
+    if not isinstance(selected, list):
+        return jsonify({"error": "devices must be a list"}), 400
+    try:
+        local_network = ipaddress.ip_network(get_local_network()["subnet"], strict=False)
+        added = []
+        for device in selected[:256]:
+            address = ipaddress.ip_address(device["target"])
+            if address not in local_network:
+                raise ValueError(f"{address} is outside the active local network")
+            added.append(add_monitored_device(str(device.get("name", address)), str(address), device_type=device.get("device_type")))
+        return jsonify({"devices": added}), 201
+    except (KeyError, TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.patch("/api/devices/<int:device_id>")
+def update_device(device_id):
+    payload = request.get_json(silent=True) or {}
+    if "active" not in payload and "interval_seconds" not in payload and "device_type" not in payload:
+        return jsonify({"error": "provide active, interval_seconds, or device_type"}), 400
+    try:
+        updated = update_monitored_device(
+            device_id,
+            active=payload.get("active"),
+            interval_seconds=payload.get("interval_seconds"),
+            device_type=payload.get("device_type"),
+        )
+    except (TypeError, ValueError) as error:
+        return jsonify({"error": str(error)}), 400
+    return (jsonify({"ok": True}) if updated else (jsonify({"error": "device not found"}), 404))
+
+
+@app.post("/api/devices/reclassify")
+def reclassify_devices():
+    try:
+        results = reclassify_monitored_devices()
+        return jsonify({"ok": True, "reclassified": results})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.delete("/api/devices/<int:device_id>")
+def delete_device(device_id):
+    removed = remove_monitored_device(device_id)
+    return (jsonify({"ok": True}) if removed else (jsonify({"error": "device not found"}), 404))
+
+
+@app.get("/api/dataset.csv")
+def dataset_csv():
+    """Export persisted ICMP ping observations for thesis analysis."""
+    samples, labels = get_ml_training_data()
+    rows = [
+        {**sample, "reviewed_condition_label": labels.get(int(sample["id"]), "")}
+        for sample in samples
+        if is_valid_ping_sample(sample)
+    ]
+    output = io.StringIO()
+    fields = ("id", "recorded_at", "device_name", "target", "online", "ping_sent", "ping_received", "packet_loss", "latency_min_ms", "latency_median_ms", "latency_max_ms", "latency_readings", "latency_min_display", "latency_median_display", "latency_max_display", "anomaly_score", "anomaly_label", "reviewed_condition_label", "error")
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    if rows:
+        writer.writerows(rows)
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = "attachment; filename=ping_dataset.csv"
+    return response
+
+
+@app.get("/api/model-records.csv")
+def model_records_csv():
+    """Export the anomaly model's inference history separately from features."""
+    rows = get_monitoring_data()["ml_records"]
+    output = io.StringIO()
+    fields = ("id", "recorded_at", "device_name", "model_version", "result", "confidence", "status")
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    if rows:
+        writer.writerows(rows)
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = "attachment; filename=ping_model_records.csv"
+    return response
+
+
+if __name__ == "__main__":
+    import os
+    port = int(os.getenv("PORT", 5000))
+    host = os.getenv("HOST", "127.0.0.1")
+    print(f"Internal ICMP & ML Engine running for Laravel on {host}:{port}")
+    app.run(debug=True, host=host, port=port)

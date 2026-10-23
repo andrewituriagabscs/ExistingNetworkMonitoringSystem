@@ -1,0 +1,63 @@
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+build/
+dist/
+
+# SQLite WAL and SHM files
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+
+# ML Generated Models & Training Checkpoints
+models/*.joblib
+models/training_status.json
+
+# Node & NPM
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Composer & PHP
+vendor/
+.phpunit.result.cache
+.phpunit.cache/
+
+# Laravel Storage & Cache
+storage/*.key
+storage/app/*
+!storage/app/.gitignore
+storage/app/public/*
+!storage/app/public/.gitignore
+storage/framework/cache/*
+!storage/framework/cache/.gitignore
+storage/framework/cache/data/*
+!storage/framework/cache/data/.gitignore
+storage/framework/sessions/*
+!storage/framework/sessions/.gitignore
+storage/framework/testing/*
+!storage/framework/testing/.gitignore
+storage/framework/views/*
+!storage/framework/views/.gitignore
+storage/logs/*
+!storage/logs/.gitignore
+
+# Environment & Sensitive Files
+.env
+.env.backup
+.env.production
+.env.testing
+
+# OS / Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
