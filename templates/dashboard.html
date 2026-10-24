@@ -130,15 +130,14 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="min-width:140px;">PC / Device</th>
-                                    <th style="min-width:110px;">Latest Ping</th>
-                                    <th style="min-width:140px;">Supervised Diagnosis</th>
-                                    <th style="min-width:180px;">Possible Cause / Threat</th>
-                                    <th style="min-width:320px;">Prioritized Remediation Steps</th>
+                                    <th style="min-width:160px;">PC / Device</th>
+                                    <th style="min-width:120px;">Latest Ping</th>
+                                    <th style="min-width:160px;">Supervised Diagnosis</th>
+                                    <th style="min-width:240px;">Possible Cause / Threat</th>
                                 </tr>
                             </thead>
                             <tbody id="ml-unreachable-rows">
-                                <tr><td colspan="5">Loading unreachable devices...</td></tr>
+                                <tr><td colspan="4">Loading unreachable devices...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -689,7 +688,7 @@
             ];
         }
 
-        function buildRecommendationRowHtml(row, showActionControls = true) {
+        function buildRecommendationRowHtml(row, includeRemediation = true) {
             const badgeStyle = (severity) => {
                 if (severity === 'critical') return 'background:rgba(211,47,47,0.14);color:#c62828;border:1px solid #c62828;';
                 if (severity === 'warning') return 'background:rgba(237,108,2,0.14);color:#ef6c00;border:1px solid #ef6c00;';
@@ -704,36 +703,37 @@
                 ? `${Math.round(Number(row.confidence) * 100)}% confidence`
                 : (row.trained ? 'Trained XGBoost' : 'Rule preview (>150ms)');
 
-            const steps = getConditionActionSteps(row);
-            const stepsListHtml = `<ol style="margin:0 0 10px 0;padding-left:18px;font-size:0.87rem;line-height:1.45;">` +
-                steps.map((step, idx) => `<li><strong>Step ${idx + 1}:</strong> ${escapeHtml(step)}</li>`).join('') +
-                `</ol>`;
+            let remediationCellHtml = '';
+            if (includeRemediation) {
+                const steps = getConditionActionSteps(row);
+                const stepsListHtml = `<ol style="margin:0 0 10px 0;padding-left:18px;font-size:0.87rem;line-height:1.45;">` +
+                    steps.map((step, idx) => `<li><strong>Step ${idx + 1}:</strong> ${escapeHtml(step)}</li>`).join('') +
+                    `</ol>`;
 
-            const dropdownOptionsHtml = steps.map((step, idx) => {
-                const shortText = step.length > 55 ? step.slice(0, 52) + '...' : step;
-                return `<option value="Step ${idx + 1}: ${escapeHtml(step)}">Step ${idx + 1}: ${escapeHtml(shortText)}</option>`;
-            }).join('');
+                const dropdownOptionsHtml = steps.map((step, idx) => {
+                    const shortText = step.length > 55 ? step.slice(0, 52) + '...' : step;
+                    return `<option value="Step ${idx + 1}: ${escapeHtml(step)}">Step ${idx + 1}: ${escapeHtml(shortText)}</option>`;
+                }).join('');
 
-            const actionControlsHtml = showActionControls ? `
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <select class="ml-step-dropdown" style="padding:4px 8px;border-radius:4px;font-size:0.82rem;border:1px solid var(--border-color);background:var(--bg-surface);color:inherit;max-width:260px;" aria-label="Select Action Step">
-                        <option value="">-- Choose step to record --</option>
-                        ${dropdownOptionsHtml}
-                    </select>
-                    <button type="button" class="range-button" onclick="recordActionStep(this, ${row.telemetry_id || 0})" style="padding:4px 10px;font-size:0.82rem;">Record</button>
-                    <span class="ml-step-status" style="font-size:0.8rem;font-weight:600;"></span>
-                </div>
-            ` : '';
+                const actionControlsHtml = `
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <select class="ml-step-dropdown" style="padding:4px 8px;border-radius:4px;font-size:0.82rem;border:1px solid var(--border-color);background:var(--bg-surface);color:inherit;max-width:260px;" aria-label="Select Action Step">
+                            <option value="">-- Choose step to record --</option>
+                            ${dropdownOptionsHtml}
+                        </select>
+                        <button type="button" class="range-button" onclick="recordActionStep(this, ${row.telemetry_id || 0})" style="padding:4px 10px;font-size:0.82rem;">Record</button>
+                        <span class="ml-step-status" style="font-size:0.8rem;font-weight:600;"></span>
+                    </div>
+                `;
+                remediationCellHtml = `<td>${stepsListHtml}${actionControlsHtml}</td>`;
+            }
 
             return `<tr>
                 <td><strong>${escapeHtml(row.device_name)}</strong><br><small>${escapeHtml(row.target)}</small></td>
                 <td>${escapeHtml(pingText)}<br><small>${escapeHtml(lossText)}</small></td>
                 <td><span style="display:inline-block;padding:3px 10px;border-radius:999px;font-weight:600;font-size:0.85rem;${badgeStyle(row.severity)}">${escapeHtml(row.condition)}</span><br><small>${escapeHtml(confidenceText)}</small></td>
                 <td><strong>${escapeHtml(row.possible_cause)}</strong></td>
-                <td>
-                    ${stepsListHtml}
-                    ${actionControlsHtml}
-                </td>
+                ${remediationCellHtml}
             </tr>`;
         }
 
@@ -766,10 +766,10 @@
 
             // Spot 1: Render Unreachable Devices
             if (!allMlRecommendations.length) {
-                bodyUnreachable.innerHTML = '<tr><td colspan="5">No monitored device ping samples yet.</td></tr>';
+                bodyUnreachable.innerHTML = '<tr><td colspan="4">No monitored device ping samples yet.</td></tr>';
                 renderPaginationForTable('#ml-unreachable-pagination', 1, 0, goToMlUnreachablePage);
             } else if (!unreachableList.length) {
-                bodyUnreachable.innerHTML = '<tr><td colspan="5" style="color:#2e7d32;font-weight:600;">✓ No unreachable devices. All monitored endpoints are responding to ICMP pings.</td></tr>';
+                bodyUnreachable.innerHTML = '<tr><td colspan="4" style="color:#2e7d32;font-weight:600;">✓ No unreachable devices. All monitored endpoints are responding to ICMP pings.</td></tr>';
                 renderPaginationForTable('#ml-unreachable-pagination', 1, 0, goToMlUnreachablePage);
             } else {
                 const startIndex = (mlUnreachableCurrentPage - 1) * itemsPerPage;
