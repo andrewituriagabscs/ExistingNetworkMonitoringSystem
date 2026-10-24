@@ -588,12 +588,12 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
             "confidence": confidence,
             "severity": "critical",
             "possible_cause": "Host Offline, Cable Disconnected, Power Off, or ICMP Block",
-            "recommended_action": "Check Host / Mitigate DoS: Verify the device is powered on and connected. If powered on, check firewall ICMP rules or block attacking IPs if a DoS flood knocked the host offline.",
+            "recommended_action": "Check Host / Mitigate Outage: Verify hardware power & cable link lights. Check router DHCP lease and host firewall ICMP settings.",
             "action_steps": [
-                "Verify device is powered on and physical Ethernet link lights are lit.",
-                "Check if host has a valid IP in router DHCP lease table (verify no IP conflict).",
-                "Verify endpoint Windows Firewall permits ICMP Echo replies.",
-                "Check if upstream switch port was administratively disabled or isolated."
+                "Verify hardware power and physical RJ-45 Ethernet link lights (PC & switch).",
+                "Check router DHCP client lease table to confirm IP assignment & verify no IP collision.",
+                "Verify endpoint Windows Firewall allows incoming ICMP Echo requests.",
+                "Inspect upstream switch port status to ensure port is not disabled or isolated."
             ],
         }
 
