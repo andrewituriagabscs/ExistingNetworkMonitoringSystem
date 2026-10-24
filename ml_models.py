@@ -543,6 +543,11 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
                 "severity": "critical",
                 "possible_cause": "Possible DDoS / Traffic Flood or Severe Bandwidth Saturation",
                 "recommended_action": "Block / Rate-Limit: Block suspicious source IPs on the firewall, enable ICMP flood protection / rate-limiting on the switch port, or isolate the overloaded host.",
+                "action_steps": [
+                    "Inspect top bandwidth-consuming processes or suspicious traffic on host.",
+                    "Enable switch port rate-limiting or ICMP flood protection.",
+                    "Verify latency returns <150ms; isolate host if flood persists."
+                ],
             }
         return {
             "trained": trained,
@@ -552,6 +557,11 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
             "severity": "warning",
             "possible_cause": "Network Bottleneck (>150ms Threshold Exceeded)",
             "recommended_action": "Prioritize / Throttle: Check for large downloads/uploads on this host, apply QoS prioritization, or inspect switch port load.",
+            "action_steps": [
+                "Check for heavy downloads, backups, or cloud sync on this host.",
+                "Apply QoS traffic prioritization on switch port.",
+                "Compare latency with local Gateway to check for shared-path bottleneck."
+            ],
         }
 
     if condition == "Packet Loss":
@@ -563,6 +573,11 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
             "severity": "warning",
             "possible_cause": "Unstable Link / Port Drop or Broadcast Storm",
             "recommended_action": "Inspect Link / Port: Check physical Ethernet cable or Wi-Fi signal, inspect switch port for CRC/duplex errors, or block excessive broadcast traffic.",
+            "action_steps": [
+                "Inspect physical RJ-45 cable, connector, or Wi-Fi signal strength.",
+                "Check switch port statistics for duplex mismatch or CRC errors.",
+                "Compare loss with Gateway (192.168.0.1) to isolate link vs switch drop."
+            ],
         }
 
     if condition == "Unreachable":
@@ -572,8 +587,14 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
             "condition": "Unreachable",
             "confidence": confidence,
             "severity": "critical",
-            "possible_cause": "Host Offline, Cable Unplugged, or DoS / Firewall Block",
+            "possible_cause": "Host Offline, Cable Disconnected, Power Off, or ICMP Block",
             "recommended_action": "Check Host / Mitigate DoS: Verify the device is powered on and connected. If powered on, check firewall ICMP rules or block attacking IPs if a DoS flood knocked the host offline.",
+            "action_steps": [
+                "Verify device is powered on and physical Ethernet link lights are lit.",
+                "Check if host has a valid IP in router DHCP lease table (verify no IP conflict).",
+                "Verify endpoint Windows Firewall permits ICMP Echo replies.",
+                "Check if upstream switch port was administratively disabled or isolated."
+            ],
         }
 
     return {
@@ -584,6 +605,10 @@ def _supervised_recommendation(item: dict[str, Any]) -> dict[str, Any]:
         "severity": "normal",
         "possible_cause": "Healthy Network Response (<=150ms, 0% Loss)",
         "recommended_action": "Continue monitoring — no action required.",
+        "action_steps": [
+            "Healthy connection verified (<=150ms, 0% packet loss).",
+            "Continue routine monitoring."
+        ],
     }
 
 
