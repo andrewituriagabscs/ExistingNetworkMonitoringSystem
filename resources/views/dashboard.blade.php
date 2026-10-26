@@ -80,7 +80,7 @@
 
                 </div></section>
 
-                <section class="ml-overview"><div class="section-heading"><div><p class="eyebrow">System 1: Existing / Baseline Approach</p><h2>Machine learning pipeline</h2></div><span class="status-pill status-normal">Single-Sample &bull; 4 Static Features &bull; &gt;150ms Rule</span></div>
+                <section class="ml-overview"><div class="section-heading"><div><p class="eyebrow">System 1: Existing / Baseline Approach</p><h2>Machine learning pipeline</h2></div><span class="status-pill status-normal">Single-Sample &bull; 4 Static Features &bull; Human-in-the-Loop</span></div>
 
                     <div class="summary-cards ml-cards">
 
@@ -88,7 +88,7 @@
 
                         <div class="card"><h2>2. Static Feature Extraction</h2><p class="small-value">4 Basic Features</p><small>Online, Latency, Loss, Ratio</small></div>
 
-                        <div class="card"><h2>3. Rule-Based Auto Labeling</h2><p id="dashboard-labeled-samples">0</p><small>Rigid &gt;150ms threshold (<span id="dashboard-valid-samples">0</span> samples)</small></div>
+                        <div class="card"><h2>3. Human-in-the-Loop Labeling</h2><p id="dashboard-labeled-samples">0</p><small>Admin-Reviewed Condition Labels (<span id="dashboard-valid-samples">0</span> samples)</small></div>
 
                         <div class="card"><h2>4. Train &amp; Run 3 Models</h2><p id="dashboard-ml-model" class="small-value">Isolation Forest, GRU, XGBoost</p><small id="dashboard-ml-version">Loading readiness</small></div>
 
@@ -184,7 +184,7 @@
 
                         <h1>ML Insights</h1>
 
-                        <p class="panel-intro">1. Basic Ping Collection (Single-Sample RTT &amp; Loss) &rarr; 2. Static Feature Extraction (4 Basic Features: Online, Latency, Loss, Ratio) &rarr; 3. Rule-Based Auto Labeling (Rigid &gt;150ms Threshold) &rarr; 4. Train &amp; Run the 3 Models (Isolation Forest, GRU, XGBoost).</p>
+                        <p class="panel-intro">1. Basic Ping Collection (Single-Sample RTT &amp; Loss) &rarr; 2. Static Feature Extraction (4 Basic Features: Online, Latency, Loss, Ratio) &rarr; 3. Human-in-the-Loop Labeling (Admin-Reviewed Condition Labels — 4 Basic Features) &rarr; 4. Train &amp; Run the 3 Models (Isolation Forest, GRU, XGBoost).</p>
 
                     </div>
 

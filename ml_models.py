@@ -46,17 +46,17 @@ PIPELINE_APPROACH = {
     "steps": [
         "1. Basic Ping Collection (Single-Sample RTT & Loss)",
         "2. Static Feature Extraction (4 Basic Features: Online, Latency, Loss, Ratio)",
-        "3. Rule-Based Auto Labeling (Rigid >150ms Threshold)",
+        "3. Human-in-the-Loop Labeling (Admin-Reviewed Condition Labels — 4 Basic Features)",
         "4. Train & Run the 3 Models (Isolation Forest, GRU, XGBoost)",
     ],
     "features": list(FEATURE_COLUMNS),
-    "labeling_mode": "Rule-Based Auto Labeling (Rigid >150ms Threshold)",
+    "labeling_mode": "Human-in-the-Loop Labeling (Admin-Reviewed Condition Labels — 4 Basic Features)",
     "ping_probes_per_check": 1,
 }
 
 
 def auto_rule_label(sample: dict[str, Any]) -> str:
-    """Step 3: Rule-Based Auto Labeling using a rigid >150ms threshold."""
+    """Suggested condition label for Human-in-the-Loop review (4 Basic Features)."""
     if not bool(sample.get("online")):
         return "Unreachable"
     latency = float(sample.get("latency_median_ms") or sample.get("latency_ms") or 0.0)
